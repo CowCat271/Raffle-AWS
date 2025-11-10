@@ -1,84 +1,140 @@
-# Raffle or Drawing Application 🎁
+# 🏆 Raffle Application
 
-## Project Overview
-
-This project implements a simple raffle or drawing application using Amazon Web Services (AWS). It uses a serverless architecture with **Amazon DynamoDB** for data storage, **AWS Lambda** for backend logic, and **Amazon API Gateway** to expose the application's functionality. The frontend, consisting of HTML pages, is hosted on **Amazon S3** and served through **Amazon CloudFront**. For enhanced security, the API uses **mutual TLS (mTLS) authentication**.
-
-<br>
+This project describes how to set up a complete AWS-based raffle application using **DynamoDB**, **Lambda**, **API Gateway**, **mTLS**, and **S3 + CloudFront** hosting.
 
 ---
 
-<br>
+## 1. Create the DynamoDB Table
 
-## Setup and Deployment
+**Table name:** `raffle`
+**Partition key:** `email`
+**Table class:** `Standard-IA` (Infrequent Access)
 
-### 1. DynamoDB Table
+### Attributes
 
-First, create a DynamoDB table to store the raffle participants' data. The table will serve as the persistent data store for the application.
+Each participant record contains:
 
-* **Table Name**: `devops90_raffle`
-* **Partition Key**: `email` (String)
-
-The table will hold objects with the following attributes for each participant:
-
-* `email`: The participant's email address (String). This is also the unique identifier.
-* `name`: The participant's full name (String).
-* `phone`: The participant's phone number (String).
-* `won`: A status field to indicate if the participant has won (String).
-
-<br>
+| Attribute | Type   | Description                                             |
+| --------- | ------ | ------------------------------------------------------- |
+| `email`   | String | The participant’s email address (**unique identifier**) |
+| `name`    | String | The participant’s full name                             |
+| `phone`   | String | The participant’s phone number                          |
+| `won`     | String | Indicates if the participant has won                    |
 
 ---
 
-<br>
+## 2. Create the Lambda Functions
 
-### 2. AWS Lambda Functions
+### IAM Role
 
-Three separate Lambda functions are required to handle the core logic of the application. These functions will perform operations on the DynamoDB table.
+Create an IAM role that allows Lambda functions to access **DynamoDB** and **CloudWatch Logs** with the following managed policies:
 
-* **`apply`**: A function that accepts participant details and adds them as a new item to the `devops90_raffle` table.
-* **`count`**: A function that retrieves the total number of items (participants) currently in the `devops90_raffle` table.
-* **`draw`**: A function that randomly selects **three** participants from the table and updates their `won` attribute to mark them as winners.
+* `AmazonDynamoDBFullAccess_v2`
+* `AWSLambdaDynamoDBExecutionRole`
+* `AWSLambdaInvocation-DynamoDB`
+* `CloudWatchLogsFullAccess`
 
-**Note**: A dedicated **IAM Role** must be created and attached to these Lambda functions. This role needs the necessary permissions to perform `PutItem`, `GetItem`, and `UpdateItem` actions on the `devops90_raffle` DynamoDB table.
+### Functions
 
-<br>
+Use **Node.js 22.x** runtime.
+After creation, **reduce the timeout to 1 second** except with draw having a 3 seconds timeout.
 
----
+| Function    | Description                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| **`apply`** | Accepts participant details and adds a new item to the `raffle` table                         |
+| **`count`** | Retrieves the total number of participants in the table                                       |
+| **`draw`**  | Randomly selects **three** participants and updates their `won` field to mark them as winners |
 
-<br>
-
-### 3. API Gateway
-
-API Gateway is used to create a REST API that exposes the Lambda functions to the internet. This allows the frontend to interact with the backend logic.
-
-* **Domain Name**: An optional, but recommended, step is to use a custom domain name (e.g., `farisahmed.link`).
-* **ACM Certificate**: If using a custom domain, a certificate must be requested from **AWS Certificate Manager (ACM)** for the domain.
-* **Custom Domain**: Add the custom domain name to the API Gateway and associate it with the certificate.
-* **DNS Record**: Create a **DNS A record** that points the custom domain to the API Gateway's endpoint. This is typically done by setting an **Alias** record in Amazon Route 53.
-* **API Mapping**: Configure the API mapping in API Gateway to link a specific path (e.g., `/raffle`) to the deployed API stage.
-* **Integrations**: Connect the API Gateway endpoints to their respective Lambda functions (`apply`, `count`, and `draw`).
-
-<br>
+For each function, create appropriate **test cases** to validate behavior and edge cases.
 
 ---
 
-<br>
+## 3. Create the API Gateway
 
-### 4. Mutual TLS (mTLS) Authentication
+### Domain Setup
 
-To secure the API, enable mTLS on the API Gateway. This requires clients to present a valid client certificate issued by a trusted Certificate Authority (CA) that you specify. This step ensures that only authorized clients can access the API.
+(Optional) Create a custom domain, e.g. `faresahmed.link`.
 
-<br>
+1. Generate an HTTPS certificate using **AWS Certificate Manager (ACM)** for `api.faresahmed.link`.
+2. Validate it using **DNS**.
+
+### API Configuration
+
+Create an **HTTP API** named `raffle`, add the Lambda functions as integrations, and configure routes as follows:
+
+| Method | Path     | Integration    |
+| ------ | -------- | -------------- |
+| `POST` | `/apply` | `raffle_apply` |
+| `GET`  | `/count` | `raffle_count` |
+| `GET`  | `/draw`  | `raffle_draw`  |
+
+Enable **Auto-Deploy** on the default stage.
+
+### Custom Domain Mapping
+
+1. Add custom domain `api.faresahmed.link` and attach the previously created certificate.
+2. In **Route53**, create a new record for `api.faresahmed.link` as an **Alias** to the API Gateway domain.
+3. Back in API Gateway, create an **API Mapping** to map the domain to the `raffle` API, optionally under the path `/raffle`.
+
+**Test your API:**
+
+```bash
+curl https://api.faresahmed.link/raffle/count
+```
+
+Expected output: the number of participants in the DynamoDB table.
 
 ---
 
-<br>
+## 4. Enable Mutual TLS (mTLS) Authentication
 
-### 5. Frontend Hosting
+Follow [AWS’s mTLS setup guide](https://aws.amazon.com/blogs/compute/introducing-mutual-tls-authentication-for-amazon-api-gateway/).
 
-The frontend static web pages are hosted on Amazon S3 and served securely and efficiently via CloudFront.
+### Steps
 
-* **S3 Bucket**: Create an S3 bucket and upload the HTML, CSS, and JavaScript files for the application's user interface.
-* **CloudFront Distribution**: Create a **CloudFront distribution** with the S3 bucket as its origin. This will cache the content at edge locations, reducing latency for users worldwide.
-* **DNS**: Configure the DNS for the frontend's domain to point to the CloudFront distribution.
+1. Create a **Root CA** certificate and client certificates.
+2. Upload `RootCA.pem` to an **S3 bucket**.
+3. In **API Gateway**, enable **mTLS** on your custom domain by providing the S3 URI for `RootCA.pem`.
+4. Disable the default API endpoint (`API: raffle`) as prompted.
+5. Wait for the update to complete.
+
+After enabling mTLS, browsers or clients without the client certificate will be rejected.
+
+**Test using `curl`:**
+
+```bash
+curl --key my_client.key --cert my_client.pem https://api.faresahmed.link/raffle/count
+```
+
+> Add the client certificate to your browser to test secure access.
+> **Reference:** [aboutssl.org/ssl-guide](https://aboutssl.org/ssl-guide/)
+
+---
+
+## 5. Frontend Hosting (S3 + CloudFront)
+
+Follow the [S3 Static Website Hosting Guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/HostingWebsiteOnS3Setup.html).
+
+### Steps
+
+1. Create an S3 bucket for your frontend.
+2. Enable **Static Website Hosting**, with the **index document** set to `apply.html`.
+3. Allow **public access** and add a **bucket policy** to permit read access to all files.
+4. Create a **CloudFront distribution**:
+
+   * **Origin:** the S3 bucket.
+   * **Domain name:** `faresahmed.link`
+   * **Certificate:** use one created in **us-east-1** for TLS.
+
+After deployment, create a **DNS record** in Route53 pointing your domain name to the CloudFront distribution.
+
+### CORS Configuration
+
+To allow your frontend domain to call the API, add the following origins to your API Gateway’s **CORS** settings:
+
+```text
+https://faresahmed.link
+https://www.faresahmed.link
+```
+
+Set them under `Access-Control-Allow-Origin`.
