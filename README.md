@@ -1,6 +1,7 @@
 # 🏆 Raffle Application
 
 This project describes how to set up a complete AWS-based raffle application using **DynamoDB**, **Lambda**, **API Gateway**, **mTLS**, and **S3 + CloudFront** hosting.
+
 ---
 
 ## Demo
