@@ -4,13 +4,6 @@ This project describes how to set up a complete AWS-based raffle application usi
 
 ---
 
-## 🎥 Demo
-
-▶️ **Watch the demo here:**
-[![Raffle Application Demo](https://img.youtube.com/vi/bOuHGb9JLfI/0.jpg)](https://youtu.be/bOuHGb9JLfI)
-
----
-
 ## 1. Create the DynamoDB Table
 
 **Table name:** `raffle`
